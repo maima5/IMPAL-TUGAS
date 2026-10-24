@@ -1,0 +1,169 @@
+erDiagram
+    users ||--o{ email_verifications : "punya"
+    users ||--o{ sessions : "punya"
+    users ||--o{ exams : "membuat"
+    users ||--o{ materials : "mengunggah"
+    users ||--o{ summaries : "memiliki"
+    users ||--|| focus_settings : "mengatur"
+    users ||--o{ focus_sessions : "menjalankan"
+    exams |o--o{ materials : "terkait (opsional)"
+    materials ||--o{ summaries : "dihasilkan"
+
+    users ||--o{ payment_transactions : "membayar"
+    subscription_plans ||--o{ payment_transactions : "dipesan"
+    subscription_plans ||--o{ subscriptions : "paket"
+    payment_transactions ||--o| subscriptions : "mengaktifkan"
+    users ||--o{ subscriptions : "berlangganan"
+    payment_transactions |o--o{ payment_webhook_events : "dinotifikasi"
+    users ||--o{ admin_audit_logs : "admin melakukan"
+    users |o--o{ admin_audit_logs : "menjadi target"
+
+    users {
+        uuid id PK
+        text email UK
+        text username UK
+        text password_hash
+        text role
+        boolean is_active
+        timestamptz deactivated_at
+        timestamptz last_login_at
+        timestamptz email_verified_at
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    email_verifications {
+        uuid id PK
+        uuid user_id FK
+        text token_hash UK
+        timestamptz expires_at
+        timestamptz used_at
+        timestamptz created_at
+    }
+
+    sessions {
+        uuid id PK
+        uuid user_id FK
+        text token_hash UK
+        text user_agent
+        text ip_address
+        timestamptz expires_at
+        timestamptz revoked_at
+        timestamptz created_at
+    }
+
+    exams {
+        uuid id PK
+        uuid user_id FK
+        text subject_name
+        timestamptz exam_date
+        text notes
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    materials {
+        uuid id PK
+        uuid user_id FK
+        uuid exam_id FK
+        text title
+        text source_type
+        text content_text
+        text file_path
+        text file_name
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    summaries {
+        uuid id PK
+        uuid material_id FK
+        uuid user_id FK
+        text summary_text
+        text status
+        text error_message
+        text model
+        timestamptz created_at
+    }
+
+    focus_settings {
+        uuid user_id PK, FK
+        smallint focus_minutes
+        smallint break_minutes
+        smallint total_sessions
+        timestamptz updated_at
+    }
+
+    focus_sessions {
+        uuid id PK
+        uuid user_id FK
+        timestamptz started_at
+        timestamptz ended_at
+        smallint focus_minutes
+        smallint break_minutes
+        smallint planned_sessions
+        smallint completed_sessions
+        int total_focus_seconds
+        text status
+        timestamptz created_at
+    }
+
+    subscription_plans {
+        uuid id PK
+        text code UK
+        text name
+        int price_idr
+        int duration_days
+        boolean is_active
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    payment_transactions {
+        uuid id PK
+        text order_id UK
+        uuid user_id FK
+        uuid plan_id FK
+        int amount_idr
+        text status
+        text gateway
+        text gateway_transaction_id
+        text payment_method
+        text payment_url
+        timestamptz expires_at
+        timestamptz paid_at
+        text review_note
+        timestamptz created_at
+        timestamptz updated_at
+    }
+
+    payment_webhook_events {
+        uuid id PK
+        text gateway
+        text event_key
+        text order_id
+        uuid transaction_id FK
+        jsonb payload
+        text process_result
+        text note
+        timestamptz received_at
+    }
+
+    subscriptions {
+        uuid id PK
+        uuid user_id FK
+        uuid plan_id FK
+        uuid transaction_id FK, UK
+        timestamptz starts_at
+        timestamptz ends_at
+        timestamptz created_at
+    }
+
+    admin_audit_logs {
+        uuid id PK
+        uuid admin_id FK
+        text action
+        uuid target_user_id FK
+        jsonb metadata
+        timestamptz created_at
+    }
