@@ -1,0 +1,317 @@
+classDiagram
+direction TB
+
+%% ===================== ENUM =====================
+class UserRole { <<enumeration>> user; admin }
+class AccountStatus { <<enumeration>> active; inactive }
+class StudySessionStatus { <<enumeration>> planned; in_progress; completed; skipped }
+class TransactionStatus { <<enumeration>> pending; paid; failed; expired }
+class SubscriptionStatus { <<enumeration>> active; expired; cancelled }
+
+%% ===================== ENTITY / DOMAIN =====================
+class User {
+  +UUID id
+  +string name
+  +string email
+  -string passwordHash
+  +UserRole role
+  +AccountStatus status
+  +Date lastLoginAt
+  +Date createdAt
+  +Date updatedAt
+  +isAdmin() bool
+  +isActive() bool
+  +toPublic() object
+}
+class AuthSession {
+  +UUID id
+  +UUID userId
+  -string tokenHash
+  +string userAgent
+  +string ipAddress
+  +Date expiresAt
+  +Date revokedAt
+  +isValid(now) bool
+}
+class StudySchedule {
+  +UUID id
+  +UUID userId
+  +string title
+  +string description
+  +Date startTime
+  +Date endTime
+  +durationMinutes() int
+}
+class StudySession {
+  +UUID id
+  +UUID scheduleId
+  +UUID userId
+  +StudySessionStatus status
+  +Date startedAt
+  +Date completedAt
+  +start() void
+  +complete() void
+  +skip() void
+}
+class AiSummary {
+  +UUID id
+  +UUID userId
+  +string title
+  +string sourceContent
+  +string summaryContent
+  +Date createdAt
+}
+class SubscriptionPlan {
+  +UUID id
+  +string code
+  +string name
+  +number price
+  +string currency
+  +int durationDays
+  +bool isActive
+  +endDateFrom(start) Date
+}
+class Transaction {
+  +UUID id
+  +string orderId
+  +UUID userId
+  +UUID planId
+  +number amount
+  +TransactionStatus status
+  +string paymentMethod
+  +string gatewayTransactionId
+  +string paymentUrl
+  +Date expiresAt
+  +Date paidAt
+  +isPaid() bool
+  +isExpired(now) bool
+  +amountMatches(gross) bool
+  +markPaid(method, at) void
+}
+class PaymentNotification {
+  +UUID id
+  +UUID transactionId
+  +string gatewayEventId
+  +json payload
+  +bool processed
+  +bool needsReview
+  +string reviewNote
+  +Date receivedAt
+  +Date processedAt
+}
+class Subscription {
+  +UUID id
+  +UUID userId
+  +UUID planId
+  +UUID transactionId
+  +SubscriptionStatus status
+  +Date startAt
+  +Date endAt
+  +isActiveAt(now) bool
+}
+class AdminAuditLog {
+  +UUID id
+  +UUID adminId
+  +UUID targetUserId
+  +string action
+  +string note
+  +Date createdAt
+}
+
+User "1" --> "0..*" AuthSession : punya
+User "1" --> "0..*" StudySchedule : membuat
+StudySchedule "1" --> "1..*" StudySession : dijalankan lewat
+User "1" --> "0..*" StudySession : menjalankan
+User "1" --> "0..*" AiSummary : memiliki
+User "1" --> "0..*" Transaction : membayar
+SubscriptionPlan "1" --> "0..*" Transaction : dipesan
+Transaction "1" --> "0..*" PaymentNotification : dinotifikasi
+Transaction "1" --> "0..1" Subscription : mengaktifkan
+User "1" --> "0..*" Subscription : berlangganan
+SubscriptionPlan "1" --> "0..*" Subscription : paket
+User "1" --> "0..*" AdminAuditLog : admin melakukan
+User "0..1" --> "0..*" AdminAuditLog : menjadi target
+User ..> UserRole
+User ..> AccountStatus
+StudySession ..> StudySessionStatus
+Transaction ..> TransactionStatus
+Subscription ..> SubscriptionStatus
+
+%% ===================== GATEWAY (integrasi eksternal) =====================
+class PaymentGateway { <<interface>>
+  +createCharge(trx, user, plan) ChargeResult
+  +parseNotification(raw) NormalizedNotification
+}
+class MidtransGateway {
+  +createCharge(trx, user, plan) ChargeResult
+  +parseNotification(raw) NormalizedNotification
+  -mapStatus(status, fraud) TransactionStatus
+}
+class AiProvider { <<interface>>
+  +summarize(text) string
+}
+class AnthropicProvider {
+  +summarize(text) string
+}
+PaymentGateway <|.. MidtransGateway
+AiProvider <|.. AnthropicProvider
+
+%% ===================== REPOSITORY =====================
+class UserRepository {
+  +findById(id) User
+  +findByEmail(email) User
+  +create(name, email, hash) User
+  +touchLogin(id) void
+  +updateStatus(id, status) User
+  +list(opts) Page~User~
+}
+class AuthSessionRepository {
+  +create(data) AuthSession
+  +findByTokenHash(hash) AuthSession
+  +revoke(id) void
+  +revokeAllForUser(userId) void
+}
+class StudyScheduleRepository {
+  +create(userId, data) StudySchedule
+  +findByIdForUser(id, userId) StudySchedule
+  +listByUser(userId, range) StudySchedule[]
+  +update(schedule) StudySchedule
+  +delete(id, userId) bool
+}
+class StudySessionRepository {
+  +create(scheduleId, userId) StudySession
+  +findByIdForUser(id, userId) StudySession
+  +listByUser(userId, status) StudySession[]
+  +save(session) StudySession
+}
+class AiSummaryRepository {
+  +create(userId, title, source, summary) AiSummary
+  +listByUser(userId) AiSummary[]
+  +findByIdForUser(id, userId) AiSummary
+}
+class SubscriptionPlanRepository {
+  +listActive() SubscriptionPlan[]
+  +findById(id) SubscriptionPlan
+}
+class TransactionRepository {
+  +create(data) Transaction
+  +findByIdForUser(id, userId) Transaction
+  +findByOrderId(orderId, forUpdate) Transaction
+  +listByUser(userId) Transaction[]
+  +save(trx) Transaction
+}
+class PaymentNotificationRepository {
+  +insertIfNew(eventId, trxId, payload) PaymentNotification
+  +resolve(id, result) void
+  +listNeedsReview() PaymentNotification[]
+}
+class SubscriptionRepository {
+  +create(data) Subscription
+  +findCurrent(userId) Subscription
+  +latestActiveEnd(userId) Date
+  +isPremium(userId) bool
+  +expireOverdue() int
+}
+class AdminRepository {
+  +addAuditLog(adminId, targetId, action, note) AdminAuditLog
+  +listAuditLogs(limit, offset) AdminAuditLog[]
+  +getDashboardStats() DashboardStats
+}
+
+%% ===================== SERVICE =====================
+class AuthService {
+  +register(name, email, password) User
+  +login(email, password, client) AuthResult
+  +refresh(refreshToken, client) AuthResult
+  +logout(refreshToken) void
+  +verifyAccessToken(token) Payload
+  -issueTokens(user, client) AuthTokens
+}
+class StudyService {
+  +createSchedule(userId, input) ScheduleWithSession
+  +listSchedules(userId, range) StudySchedule[]
+  +getSchedule(userId, id) StudySchedule
+  +updateSchedule(userId, id, patch) StudySchedule
+  +deleteSchedule(userId, id) void
+  +listSessions(userId, status) StudySession[]
+  +transition(userId, id, action) StudySession
+}
+class AiSummaryService {
+  +create(userId, title, content) AiSummary
+  +list(userId) AiSummary[]
+  +get(userId, id) AiSummary
+}
+class SubscriptionService {
+  +listPlans() SubscriptionPlan[]
+  +isPremium(userId) bool
+  +getCurrent(userId) Subscription
+  +activateFromTransaction(trx, plan) Subscription
+  +expireOverdue() int
+}
+class PaymentService {
+  +checkout(userId, planId) Transaction
+  +listTransactions(userId) Transaction[]
+  +getTransaction(userId, id) Transaction
+  +handleNotification(raw) Result
+}
+class AdminService {
+  +getDashboardStats() DashboardStats
+  +listUsers(opts) Page~User~
+  +setUserStatus(adminId, targetId, status, note) User
+  +listAuditLogs(limit, offset) AdminAuditLog[]
+  +listPaymentsNeedingReview() PaymentNotification[]
+}
+
+%% ===================== CONTROLLER & MIDDLEWARE =====================
+class AuthController { +register() +login() +refresh() +logout() +me() }
+class StudyController { +createSchedule() +listSchedules() +getSchedule() +updateSchedule() +deleteSchedule() +listSessions() +transition() }
+class AiSummaryController { +create() +list() +get() }
+class PaymentController { +listPlans() +checkout() +listTransactions() +getTransaction() +mySubscription() +notification() }
+class AdminController { +stats() +listUsers() +setUserStatus() +auditLogs() +paymentsNeedingReview() }
+class AuthMiddleware {
+  +authenticate
+  +requireAdmin
+  +requirePremium
+}
+
+%% ===================== DEPENDENSI LAYER =====================
+AuthController --> AuthService
+StudyController --> StudyService
+AiSummaryController --> AiSummaryService
+PaymentController --> PaymentService
+PaymentController --> SubscriptionService
+AdminController --> AdminService
+AuthMiddleware --> AuthService
+AuthMiddleware --> UserRepository
+AuthMiddleware --> SubscriptionService
+
+AuthService --> UserRepository
+AuthService --> AuthSessionRepository
+StudyService --> StudyScheduleRepository
+StudyService --> StudySessionRepository
+AiSummaryService --> AiSummaryRepository
+AiSummaryService --> SubscriptionService
+AiSummaryService --> AiProvider
+SubscriptionService --> SubscriptionRepository
+SubscriptionService --> SubscriptionPlanRepository
+PaymentService --> TransactionRepository
+PaymentService --> SubscriptionPlanRepository
+PaymentService --> UserRepository
+PaymentService --> PaymentNotificationRepository
+PaymentService --> SubscriptionService
+PaymentService --> PaymentGateway
+AdminService --> UserRepository
+AdminService --> AuthSessionRepository
+AdminService --> AdminRepository
+AdminService --> PaymentNotificationRepository
+
+UserRepository ..> User
+AuthSessionRepository ..> AuthSession
+StudyScheduleRepository ..> StudySchedule
+StudySessionRepository ..> StudySession
+AiSummaryRepository ..> AiSummary
+SubscriptionPlanRepository ..> SubscriptionPlan
+TransactionRepository ..> Transaction
+PaymentNotificationRepository ..> PaymentNotification
+SubscriptionRepository ..> Subscription
+AdminRepository ..> AdminAuditLog
